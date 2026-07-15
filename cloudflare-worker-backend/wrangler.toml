@@ -1,0 +1,18 @@
+name = "trust-shield-backend"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+# Cloudflare KV Storage Binding
+# Create KV namespace with `npx wrangler kv:namespace create TRUST_SHIELD_KV`
+# and update the ID below.
+kv_namespaces = [
+  { binding = "TRUST_SHIELD_KV", id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID" }
+]
+
+[vars]
+ENVIRONMENT = "production"
+
+# Note: Store actual secret keys using Wrangler secrets CLI:
+# npx wrangler secret put GEMINI_API_KEY
+# npx wrangler secret put VIRUSTOTAL_API_KEY
+# npx wrangler secret put SAFE_BROWSING_API_KEY
