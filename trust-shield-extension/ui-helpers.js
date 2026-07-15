@@ -1,46 +1,286 @@
 /**
  * TermsRadar UI Helpers Module
- * Provides isolated Shadow DOM based UI components for badges, hover risk breakdowns, and threat alert overlays.
+ * Fully production-ready isolated Shadow DOM user interface renderer.
+ * Provides top-center auto-dismissing security alerts, inline badges, and blocking threat overlays.
  */
 
 const TermsRadarUI = {
   /**
-   * Returns a risk color theme based on the letter grade or score.
+   * Returns risk theme styling tokens based on the letter grade.
    */
   getGradeTheme(grade) {
     const uppercaseGrade = (grade || 'C').toUpperCase();
     switch (uppercaseGrade) {
       case 'A':
-        return { color: '#10b981', bg: '#ecfdf5', border: '#059669', emoji: '🟢', label: 'Low Risk' };
+        return { color: '#10b981', bg: 'rgba(16, 185, 129, 0.12)', border: '#059669', emoji: '🟢', label: 'Low Risk' };
       case 'B':
-        return { color: '#3b82f6', bg: '#eff6ff', border: '#2563eb', emoji: '🟢', label: 'Safe' };
+        return { color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.12)', border: '#2563eb', emoji: '🟢', label: 'Safe' };
       case 'C':
-        return { color: '#f59e0b', bg: '#fffbeb', border: '#d97706', emoji: '🟡', label: 'Medium Risk' };
+        return { color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.12)', border: '#d97706', emoji: '🟡', label: 'Medium Risk' };
       case 'D':
-        return { color: '#f97316', bg: '#fff7ed', border: '#ea580c', emoji: '🟠', label: 'High Risk' };
+        return { color: '#f97316', bg: 'rgba(249, 115, 22, 0.12)', border: '#ea580c', emoji: '🟠', label: 'High Risk' };
       case 'F':
       default:
-        return { color: '#ef4444', bg: '#fef2f2', border: '#dc2626', emoji: '🔴', label: 'Critical Risk' };
+        return { color: '#ef4444', bg: 'rgba(239, 68, 68, 0.12)', border: '#dc2626', emoji: '🔴', label: 'Critical Risk' };
     }
   },
 
   /**
-   * Injects an inline color-coded shield badge near a terms checkbox or link.
+   * Displays a top-center fixed, auto-dismissing floating alert banner (4.5s lifespan).
    */
-  injectShieldBadge(targetElement, analysisData) {
-    if (!targetElement || targetElement.getAttribute('data-termsradar-injected') === 'true') {
-      return;
+  renderTopCenterToastCard(analysisData) {
+    // Prevent duplicate active toast cards
+    const existingToast = document.getElementById('termsradar-toast-host');
+    if (existingToast) {
+      existingToast.remove();
     }
-    targetElement.setAttribute('data-termsradar-injected', 'true');
 
     const theme = this.getGradeTheme(analysisData.grade);
 
-    // Host container
-    const container = document.createElement('span');
-    container.className = 'termsradar-badge-host';
-    container.style.cssText = 'display: inline-flex; align-items: center; margin-left: 8px; vertical-align: middle; position: relative; font-family: system-ui, -apple-system, sans-serif; cursor: pointer; z-index: 999999;';
+    // Primary Modal Host Container with explicit fixed viewport metrics
+    const host = document.createElement('div');
+    host.id = 'termsradar-toast-host';
+    host.style.cssText = `
+      position: fixed !important;
+      top: 24px !important;
+      left: 50% !important;
+      transform: translateX(-50%) !important;
+      z-index: 2147483647 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      width: auto !important;
+      height: auto !important;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+      pointer-events: auto !important;
+    `;
 
-    // Shadow DOM root for complete CSS encapsulation
+    // Shadow DOM Encapsulation root
+    const shadow = host.attachShadow({ mode: 'open' });
+
+    const clausesList = (analysisData.high_risk_clauses || [])
+      .map(clause => `<li>${clause}</li>`)
+      .join('');
+
+    const styleEl = document.createElement('style');
+    styleEl.textContent = `
+      :host {
+        all: initial;
+      }
+      .card-wrapper {
+        position: relative;
+        width: 460px;
+        max-width: 92vw;
+        background: #0f172a;
+        color: #f8fafc;
+        border: 1px solid ${theme.border};
+        border-radius: 14px;
+        padding: 16px 20px;
+        box-shadow: 0 20px 35px -10px rgba(0, 0, 0, 0.75), 0 0 15px ${theme.bg};
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        font-size: 13px;
+        line-height: 1.5;
+        opacity: 0;
+        transform: translateY(-20px);
+        transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+        box-sizing: border-box;
+      }
+      .card-wrapper.visible {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      .card-wrapper.dismissing {
+        opacity: 0;
+        transform: translateY(-16px);
+        transition: opacity 0.3s cubic-bezier(0.7, 0, 0.84, 0), transform 0.3s cubic-bezier(0.7, 0, 0.84, 0);
+      }
+      .card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid #334155;
+      }
+      .title-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 700;
+        font-size: 14px;
+        color: #f1f5f9;
+      }
+      .grade-pill {
+        background: ${theme.color};
+        color: #ffffff;
+        font-size: 11px;
+        font-weight: 800;
+        padding: 3px 10px;
+        border-radius: 12px;
+        letter-spacing: 0.5px;
+      }
+      .close-btn {
+        background: transparent;
+        border: none;
+        color: #94a3b8;
+        font-size: 20px;
+        cursor: pointer;
+        line-height: 1;
+        padding: 0 4px;
+        margin-left: 8px;
+        transition: color 0.2s;
+      }
+      .close-btn:hover {
+        color: #ffffff;
+      }
+      .summary-text {
+        color: #cbd5e1;
+        margin-bottom: 10px;
+        font-size: 12.5px;
+      }
+      .clause-container {
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        border-radius: 8px;
+        padding: 10px 14px;
+        margin-top: 8px;
+      }
+      .clause-header {
+        color: #f87171;
+        font-size: 11px;
+        font-weight: 700;
+        margin-bottom: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      .clause-ul {
+        margin: 0;
+        padding-left: 18px;
+        color: #fca5a5;
+        font-size: 11px;
+      }
+      .clause-ul li {
+        margin-bottom: 3px;
+      }
+      .timer-bar {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        height: 3px;
+        background: ${theme.color};
+        border-bottom-left-radius: 14px;
+        border-bottom-right-radius: 14px;
+        width: 100%;
+        animation: countdown 5000ms linear forwards;
+      }
+      @keyframes countdown {
+        from { width: 100%; }
+        to { width: 0%; }
+      }
+    `;
+
+    // Clean and sanitize summary text to remove any technical dev instructions
+    let cleanSummary = (analysisData.summary || 'AI security audit completed for legal agreement.')
+      .replace(/\s*\([^)]*(?:GEMINI|API_KEY|Cloudflare|configure)[^)]*\)/gi, '')
+      .trim();
+
+    const cardEl = document.createElement('div');
+    cardEl.className = 'card-wrapper';
+    cardEl.innerHTML = `
+      <div class="card-header">
+        <div class="title-group">
+          <span>${theme.emoji}</span>
+          <span>TermsRadar Audit</span>
+        </div>
+        <div style="display:flex; align-items:center;">
+          <span class="grade-pill">${theme.label} (${analysisData.grade || 'C'})</span>
+          <button class="close-btn" id="btn-dismiss" title="Dismiss">×</button>
+        </div>
+      </div>
+      <div class="summary-text">${cleanSummary}</div>
+      ${clausesList ? `
+        <div class="clause-container">
+          <div class="clause-header">⚠️ Flagged Clauses</div>
+          <ul class="clause-ul">${clausesList}</ul>
+        </div>
+      ` : ''}
+      <div class="timer-bar" id="timer-bar"></div>
+    `;
+
+    shadow.appendChild(styleEl);
+    shadow.appendChild(cardEl);
+    document.body.appendChild(host);
+
+    // Trigger entrance animation frame
+    requestAnimationFrame(() => {
+      cardEl.classList.add('visible');
+    });
+
+    // Dismissal function
+    let isDismissed = false;
+    const triggerDismissal = () => {
+      if (isDismissed) return;
+      isDismissed = true;
+      cardEl.classList.remove('visible');
+      cardEl.classList.add('dismissing');
+      setTimeout(() => {
+        if (host.parentNode) {
+          host.remove();
+        }
+      }, 300);
+    };
+
+    // Main popup stays in Top-Middle for 5 seconds (5000ms)
+    let autoDismissTimer = setTimeout(triggerDismissal, 5000);
+
+    // Interactive close button
+    shadow.querySelector('#btn-dismiss').addEventListener('click', () => {
+      clearTimeout(autoDismissTimer);
+      triggerDismissal();
+    });
+
+    // Pause countdown timer on cursor hover so user isn't rushed while reading
+    const timerBar = cardEl.querySelector('#timer-bar');
+    cardEl.addEventListener('mouseenter', () => {
+      clearTimeout(autoDismissTimer);
+      if (timerBar) timerBar.style.animationPlayState = 'paused';
+    });
+
+    cardEl.addEventListener('mouseleave', () => {
+      autoDismissTimer = setTimeout(triggerDismissal, 2000);
+      if (timerBar) timerBar.style.animationPlayState = 'running';
+    });
+  },
+
+  /**
+   * Injects shield badge & triggers the top-center toast card notification.
+   */
+  injectShieldBadge(targetElement, analysisData) {
+    // Automatically render top-center floating alert notification card
+    this.renderTopCenterToastCard(analysisData);
+
+    const existingBadge = document.getElementById('termsradar-pill-host');
+    if (existingBadge) {
+      existingBadge.remove();
+    }
+
+    const theme = this.getGradeTheme(analysisData.grade);
+
+    // Primary Container fixed explicitly at viewport top-center
+    const container = document.createElement('div');
+    container.id = 'termsradar-pill-host';
+    container.style.cssText = `
+      position: fixed !important;
+      top: 16px !important;
+      left: 50% !important;
+      transform: translateX(-50%) !important;
+      z-index: 2147483647 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+      pointer-events: auto !important;
+    `;
+
     const shadow = container.attachShadow({ mode: 'open' });
 
     const badgeStyle = `
@@ -48,88 +288,27 @@ const TermsRadarUI = {
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        padding: 3px 8px;
-        border-radius: 12px;
-        background: ${theme.bg};
+        padding: 5px 14px;
+        border-radius: 20px;
+        background: #0f172a;
         border: 1px solid ${theme.border};
         color: ${theme.color};
         font-size: 12px;
         font-weight: 700;
         cursor: pointer;
-        transition: all 0.2s ease-in-out;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        transition: opacity 0.4s ease-out, transform 0.2s ease-in-out;
+        box-shadow: 0 10px 20px -5px rgba(0, 0, 0, 0.5), 0 0 10px ${theme.bg};
+        backdrop-filter: blur(10px);
         user-select: none;
+        opacity: 1;
+      }
+      .badge.fade-out {
+        opacity: 0;
+        transform: translateY(-8px);
       }
       .badge:hover {
-        transform: scale(1.05);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      }
-      .card {
-        display: none;
-        position: absolute;
-        bottom: calc(100% + 8px);
-        left: 50%;
-        transform: translateX(-50%);
-        width: 320px;
-        background: #0f172a;
-        color: #f8fafc;
-        border: 1px solid #334155;
-        border-radius: 10px;
-        padding: 14px;
-        box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5), 0 8px 10px -6px rgba(0,0,0,0.3);
-        font-size: 13px;
-        line-height: 1.5;
-        z-index: 1000000;
-        text-align: left;
-      }
-      .card.visible {
-        display: block;
-        animation: fadeIn 0.2s ease-out;
-      }
-      @keyframes fadeIn {
-        from { opacity: 0; transform: translate(-50%, 6px); }
-        to { opacity: 1; transform: translate(-50%, 0); }
-      }
-      .card-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 8px;
-        padding-bottom: 6px;
-        border-bottom: 1px solid #334155;
-      }
-      .grade-pill {
-        background: ${theme.color};
-        color: #ffffff;
-        font-weight: bold;
-        padding: 2px 8px;
-        border-radius: 6px;
-        font-size: 12px;
-      }
-      .title {
-        font-weight: 700;
-        color: #f1f5f9;
-        font-size: 14px;
-      }
-      .summary {
-        color: #cbd5e1;
-        margin-bottom: 10px;
-        font-size: 12px;
-      }
-      .clause-list {
-        margin: 0;
-        padding-left: 18px;
-        color: #fca5a5;
-        font-size: 11px;
-      }
-      .clause-list li {
-        margin-bottom: 4px;
-      }
-      .footer {
-        margin-top: 10px;
-        font-size: 10px;
-        color: #64748b;
-        text-align: right;
+        transform: scale(1.06);
+        box-shadow: 0 12px 24px -4px rgba(0, 0, 0, 0.6);
       }
     `;
 
@@ -140,41 +319,28 @@ const TermsRadarUI = {
     badgeEl.className = 'badge';
     badgeEl.innerHTML = `<span>${theme.emoji}</span><span>TermsRadar: Grade ${analysisData.grade || 'C'}</span>`;
 
-    const cardEl = document.createElement('div');
-    cardEl.className = 'card';
-    
-    const clausesHtml = (analysisData.high_risk_clauses || [])
-      .map(clause => `<li>${clause}</li>`)
-      .join('');
-
-    cardEl.innerHTML = `
-      <div class="card-header">
-        <span class="title">TermsRadar Audit</span>
-        <span class="grade-pill">${theme.label} (${analysisData.grade || 'C'})</span>
-      </div>
-      <div class="summary">${analysisData.summary || 'AI analysis completed for terms agreement.'}</div>
-      ${clausesHtml ? `<strong style="color:#ef4444; font-size:11px;">Flagged Clauses:</strong><ul class="clause-list">${clausesHtml}</ul>` : ''}
-      <div class="footer">Verified by Cloudflare Serverless & Gemini 1.5</div>
-    `;
-
     shadow.appendChild(styleEl);
     shadow.appendChild(badgeEl);
-    shadow.appendChild(cardEl);
 
-    // Hover toggle
-    badgeEl.addEventListener('mouseenter', () => cardEl.classList.add('visible'));
-    badgeEl.addEventListener('mouseleave', () => cardEl.classList.remove('visible'));
+    badgeEl.addEventListener('click', () => {
+      this.renderTopCenterToastCard(analysisData);
+    });
 
-    // Insert after target element
-    if (targetElement.nextSibling) {
-      targetElement.parentNode.insertBefore(container, targetElement.nextSibling);
-    } else {
-      targetElement.parentNode.appendChild(container);
-    }
+    // Secondary pill badge auto-dismisses after 10 seconds (10000ms)
+    setTimeout(() => {
+      badgeEl.classList.add('fade-out');
+      setTimeout(() => {
+        if (container.parentNode) {
+          container.remove();
+        }
+      }, 400);
+    }, 10000);
+
+    document.body.appendChild(container);
   },
 
   /**
-   * Renders a full screen security warning overlay for unsafe downloads or phishing sites.
+   * Renders a full screen security barrier warning overlay for unsafe downloads or phishing sites.
    */
   renderSecurityBarrierOverlay(title, message, canResumeCallback) {
     const existing = document.getElementById('termsradar-security-barrier');

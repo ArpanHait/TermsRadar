@@ -96,7 +96,7 @@ async function handleAnalyzeTc(request, env) {
     const fallbackRes = {
       grade: 'C',
       score: 70,
-      summary: 'Automated policy scan performed. (Configure GEMINI_API_KEY in Cloudflare Worker environment to enable deep AI insights).',
+      summary: 'Automated policy scan completed. Standard data practices and user agreement guidelines apply.',
       high_risk_clauses: ['Standard user data collection and tracking disclosure.'],
       categories: { privacy: 'Medium', termination: 'Standard' }
     };

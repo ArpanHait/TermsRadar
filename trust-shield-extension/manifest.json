@@ -8,10 +8,12 @@
     "activeTab",
     "downloads",
     "storage",
+    "webNavigation",
     "declarativeNetRequest"
   ],
   "host_permissions": [
     "https://*.workers.dev/*",
+    "https://termsradar.arpanhait2006.workers.dev/*",
     "<all_urls>"
   ],
   "background": {
@@ -29,8 +31,18 @@
       "run_at": "document_idle"
     }
   ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "TermsRadar Security Dashboard"
+    "default_title": "TermsRadar Security Dashboard",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   }
 }

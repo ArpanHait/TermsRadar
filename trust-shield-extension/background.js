@@ -156,36 +156,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // ============================================================================
 // 2. PHISHING & WEBSITE VERIFICATION (NAVIGATION INTERCEPTION)
 // ============================================================================
-chrome.webNavigation.onCommitted.addListener(details => {
-  // Filter out sub-frames, non-http(s) pages, and chrome internal URLs
-  if (details.frameId !== 0 || !details.url || (!details.url.startsWith('http://') && !details.url.startsWith('https://'))) {
-    return;
-  }
-
-  (async () => {
-    try {
-      const backendUrl = await getBackendUrl();
-      const checkRes = await fetch(`${backendUrl}/check-domain`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: details.url })
-      });
-
-      const checkData = await checkRes.json();
-      if (checkData && checkData.isUnsafe) {
-        updateStats('threatsBlocked');
-        chrome.tabs.sendMessage(details.tabId, {
-          action: 'SHOW_SECURITY_BARRIER',
-          title: 'DANGEROUS WEBSITE BLOCKED: Phishing & Malicious Domain Warning',
-          message: `TermsRadar detected potential fraud/phishing on <strong>${new URL(details.url).hostname}</strong>.<br><br><strong>Details:</strong> ${checkData.threatDetail || 'Flagged by Safe Browsing databases.'}`,
-          canResume: false
-        }).catch(() => {});
-      }
-    } catch (err) {
-      console.error('[TermsRadar] Domain check error:', err);
+if (typeof chrome !== 'undefined' && chrome.webNavigation?.onCommitted) {
+  chrome.webNavigation.onCommitted.addListener(details => {
+    // Filter out sub-frames, non-http(s) pages, and chrome internal URLs
+    if (details.frameId !== 0 || !details.url || (!details.url.startsWith('http://') && !details.url.startsWith('https://'))) {
+      return;
     }
-  })();
-});
+
+    (async () => {
+      try {
+        const backendUrl = await getBackendUrl();
+        const checkRes = await fetch(`${backendUrl}/check-domain`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: details.url })
+        });
+
+        const checkData = await checkRes.json();
+        if (checkData && checkData.isUnsafe) {
+          updateStats('threatsBlocked');
+          chrome.tabs.sendMessage(details.tabId, {
+            action: 'SHOW_SECURITY_BARRIER',
+            title: 'DANGEROUS WEBSITE BLOCKED: Phishing & Malicious Domain Warning',
+            message: `TermsRadar detected potential fraud/phishing on <strong>${new URL(details.url).hostname}</strong>.<br><br><strong>Details:</strong> ${checkData.threatDetail || 'Flagged by Safe Browsing databases.'}`,
+            canResume: false
+          }).catch(() => {});
+        }
+      } catch (err) {
+        console.error('[TermsRadar] Domain check error:', err);
+      }
+    })();
+  });
+}
 
 // ============================================================================
 // 3. T&C ANALYSIS DISPATCHER
