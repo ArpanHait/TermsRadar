@@ -28,6 +28,19 @@ export default {
       return new Response(null, { headers: CORS_HEADERS, status: 204 });
     }
 
+    // Handle direct browser GET hits gracefully
+    if (request.method === 'GET') {
+      return new Response(JSON.stringify({
+        service: 'TermsRadar Serverless Gateway',
+        status: 'online',
+        version: '1.0.0',
+        message: 'TermsRadar Cloudflare Worker API is active and ready to process security requests.'
+      }), {
+        status: 200,
+        headers: CORS_HEADERS
+      });
+    }
+
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -40,7 +53,7 @@ export default {
         return await handleCheckDomain(request, env);
       } else {
         return new Response(JSON.stringify({ error: 'Endpoint not found' }), {
-          status: 44,
+          status: 404,
           headers: CORS_HEADERS
         });
       }

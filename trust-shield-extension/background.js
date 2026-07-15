@@ -9,7 +9,7 @@
 // Swap live Cloudflare Worker URL or endpoint parameters here.
 // ============================================================================
 const CONFIG = {
-  WORKER_BACKEND_URL: 'https://trust-shield-backend.workers.dev', // Replace with your live workers.dev URL
+  WORKER_BACKEND_URL: 'https://termsradar.arpanhait2006.workers.dev', // Replace with your live workers.dev URL
   SAFE_FILE_EXTENSIONS: ['mp4', 'mkv', 'avi', 'mov', 'mp3', 'wav', 'png', 'jpg', 'jpeg', 'svg', 'gif', 'webp', 'pdf', 'txt', 'csv', 'docx', 'xlsx'],
   RISKY_FILE_EXTENSIONS: ['exe', 'zip', 'msi', 'dmg', 'bat', 'vbs', 'ps1', 'iso', 'apk', 'crx', 'rar', '7z', 'jar', 'cmd', 'scr'],
   RATE_LIMIT_FALLBACK_TEXT: "File download securely paused. Cloud malware scanning queue is currently busy. TermsRadar is actively verifying safety—please wait a few seconds, or click to resume at your own risk."
@@ -19,15 +19,20 @@ const CONFIG = {
  * Utility to get configured backend URL from storage or fallback to default.
  */
 async function getBackendUrl() {
+  let url = CONFIG.WORKER_BACKEND_URL;
   try {
     const result = await chrome.storage.local.get(['customWorkerUrl']);
     if (result.customWorkerUrl && result.customWorkerUrl.trim() !== '') {
-      return result.customWorkerUrl.trim().replace(/\/$/, '');
+      url = result.customWorkerUrl.trim();
     }
   } catch (err) {
     console.error('[TermsRadar] Failed to read storage worker URL:', err);
   }
-  return CONFIG.WORKER_BACKEND_URL.replace(/\/$/, '');
+  url = url.replace(/\/$/, '');
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = 'https://' + url;
+  }
+  return url;
 }
 
 /**
@@ -76,7 +81,12 @@ chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
         // Pause download while hashing and verifying
         chrome.downloads.pause(downloadItem.id);
 
-        // Fetch payload chunk to compute SHA-256 hash
+        // Fetch payload chunk to compute SHA-256 hash if valid HTTP/HTTPS download link
+        if (!downloadItem.url || (!downloadItem.url.startsWith('http://') && !downloadItem.url.startsWith('https://'))) {
+          suggest({ filename: downloadItem.filename });
+          return;
+        }
+
         const response = await fetch(downloadItem.url, { method: 'GET', headers: { Range: 'bytes=0-5242880' } }); // Read first 5MB or full payload
         const arrayBuffer = await response.arrayBuffer();
         const sha256Hash = await calculateSha256(arrayBuffer);
@@ -147,8 +157,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // 2. PHISHING & WEBSITE VERIFICATION (NAVIGATION INTERCEPTION)
 // ============================================================================
 chrome.webNavigation.onCommitted.addListener(details => {
-  // Filter out sub-frames and chrome internal URLs
-  if (details.frameId !== 0 || details.url.startsWith('chrome://') || details.url.startsWith('chrome-extension://')) {
+  // Filter out sub-frames, non-http(s) pages, and chrome internal URLs
+  if (details.frameId !== 0 || !details.url || (!details.url.startsWith('http://') && !details.url.startsWith('https://'))) {
     return;
   }
 
@@ -187,18 +197,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const { url } = message.payload;
         let termsText = '';
 
-        // Asynchronously fetch terms page content
-        try {
-          const fetchRes = await fetch(url, { method: 'GET' });
-          const htmlText = await fetchRes.text();
-          // Basic text extraction stripping HTML tags
-          termsText = htmlText.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-                              .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
-                              .replace(/<[^>]+>/g, ' ')
-                              .replace(/\s+/g, ' ')
-                              .slice(0, 15000); // 15k character payload limit for optimum prompt processing
-        } catch (fetchErr) {
-          console.warn('[TermsRadar] Could not fetch terms body directly, sending URL snippet:', fetchErr);
+        // Asynchronously fetch terms page content if valid absolute HTTP/HTTPS URL
+        if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+          try {
+            const fetchRes = await fetch(url, { method: 'GET' });
+            const htmlText = await fetchRes.text();
+            // Basic text extraction stripping HTML tags
+            termsText = htmlText.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+                                .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+                                .replace(/<[^>]+>/g, ' ')
+                                .replace(/\s+/g, ' ')
+                                .slice(0, 15000); // 15k character payload limit for optimum prompt processing
+          } catch (fetchErr) {
+            console.warn('[TermsRadar] Could not fetch terms body directly, sending URL snippet:', fetchErr);
+          }
         }
 
         const backendUrl = await getBackendUrl();
