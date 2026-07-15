@@ -6,7 +6,7 @@ compatibility_date = "2024-01-01"
 # Create KV namespace with `npx wrangler kv:namespace create TRUST_SHIELD_KV`
 # and update the ID below.
 kv_namespaces = [
-  { binding = "TRUST_SHIELD_KV", id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID" }
+  { binding = "TRUST_SHIELD_KV", id = "b5e13af78acd4bcda0bf917ad7e95d36" }
 ]
 
 [vars]
