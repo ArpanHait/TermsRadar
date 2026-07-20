@@ -1,0 +1,8 @@
+{
+  "name": "termsradar-extension",
+  "version": "1.0.0",
+  "description": "TermsRadar Chrome Extension",
+  "scripts": {
+    "test": "node --test test/**/*.test.js"
+  }
+}

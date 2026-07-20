@@ -1,0 +1,9 @@
+{
+  "name": "termsradar-backend",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker Backend for TermsRadar",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/**/*.test.js"
+  }
+}

@@ -234,3 +234,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // Asynchronous response channel
   }
 });
+
+// CommonJS export block for unit testing
+if (typeof exports !== 'undefined') {
+  exports.getBackendUrl = getBackendUrl;
+  exports.CONFIG = CONFIG;
+}
