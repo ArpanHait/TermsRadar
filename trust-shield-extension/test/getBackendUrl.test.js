@@ -9,13 +9,14 @@ global.chrome = {
   storage: { local: { get: async () => ({}) } }
 };
 
-const { getBackendUrl, CONFIG } = require('../background.js');
+const { getBackendUrl, invalidateBackendUrlCache, CONFIG } = require('../background.js');
 
 describe('getBackendUrl utility function', () => {
   let originalChromeStorage;
 
   beforeEach(() => {
     originalChromeStorage = global.chrome.storage.local.get;
+    if (invalidateBackendUrlCache) invalidateBackendUrlCache();
   });
 
   afterEach(() => {
@@ -68,5 +69,22 @@ describe('getBackendUrl utility function', () => {
     };
     const url = await getBackendUrl();
     assert.strictEqual(url, CONFIG.WORKER_BACKEND_URL.replace(/\/$/, ''));
+  });
+
+  it('should use in-memory cache on subsequent calls without reading storage repeatedly', async () => {
+    let storageReadCount = 0;
+    global.chrome.storage.local.get = async () => {
+      storageReadCount++;
+      return { customWorkerUrl: 'https://cached-worker.workers.dev' };
+    };
+
+    const firstCall = await getBackendUrl();
+    const secondCall = await getBackendUrl();
+    const thirdCall = await getBackendUrl();
+
+    assert.strictEqual(firstCall, 'https://cached-worker.workers.dev');
+    assert.strictEqual(secondCall, 'https://cached-worker.workers.dev');
+    assert.strictEqual(thirdCall, 'https://cached-worker.workers.dev');
+    assert.strictEqual(storageReadCount, 1);
   });
 });

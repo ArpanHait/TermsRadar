@@ -18,50 +18,71 @@
   };
 
   /**
+   * Finds the primary Terms / Privacy / Legal link on the page efficiently without allocating full arrays.
+   */
+  function findPrimaryTermsLink() {
+    // Fast path 1: CSS attribute selector for common URL patterns
+    const fastLink = document.querySelector('a[href*="terms" i], a[href*="privacy" i], a[href*="tos" i], a[href*="legal" i], a[href*="agreement" i]');
+    if (fastLink) return fastLink;
+
+    // Fast path 2: Single iteration over links, breaking on first match
+    const links = document.querySelectorAll('a[href]');
+    for (const link of links) {
+      const href = link.getAttribute('href') || '';
+      const text = link.textContent || '';
+      if (CONFIG.TERMS_LINK_REGEX.test(href) || CONFIG.TERMS_LINK_REGEX.test(text)) {
+        return link;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Finds the primary registration or terms agreement checkbox with early exit.
+   */
+  function findPrimaryTermsCheckbox() {
+    const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+    for (const cb of checkboxes) {
+      const parentText = cb.parentElement ? cb.parentElement.textContent : '';
+      if (CONFIG.SIGNUP_INDICATORS.test(parentText) || CONFIG.TERMS_LINK_REGEX.test(parentText)) {
+        return cb;
+      }
+    }
+    return null;
+  }
+
+  /**
    * Scans DOM for registration forms, checkboxes, and T&C links.
    */
   async function scanPageForTerms() {
-    const links = Array.from(document.querySelectorAll('a[href]'));
-    const termsLinks = links.filter(link => {
-      const href = link.getAttribute('href') || '';
-      const text = link.textContent || '';
-      return CONFIG.TERMS_LINK_REGEX.test(href) || CONFIG.TERMS_LINK_REGEX.test(text);
-    });
+    const primaryLink = findPrimaryTermsLink();
+    if (!primaryLink) return;
 
-    const checkboxes = Array.from(document.querySelectorAll('input[type="checkbox"]')).filter(cb => {
-      const parentText = cb.parentElement ? cb.parentElement.textContent : '';
-      return CONFIG.SIGNUP_INDICATORS.test(parentText) || CONFIG.TERMS_LINK_REGEX.test(parentText);
-    });
+    const primaryCheckbox = findPrimaryTermsCheckbox();
+    const targetAnchorOrCheckbox = primaryCheckbox || primaryLink;
+    const targetUrl = primaryLink.href;
 
-    // If matching terms links found
-    if (termsLinks.length > 0) {
-      const primaryLink = termsLinks[0];
-      const targetAnchorOrCheckbox = checkboxes.length > 0 ? checkboxes[0] : primaryLink;
-      
-      const targetUrl = primaryLink.href;
-
-      // Request background service worker to fetch and audit terms
-      chrome.runtime.sendMessage(
-        {
-          action: 'ANALYZE_TC',
-          payload: {
-            url: targetUrl,
-            pageTitle: document.title
-          }
-        },
-        response => {
-          if (chrome.runtime.lastError) {
-            console.warn('[TermsRadar] Communication error:', chrome.runtime.lastError.message);
-            return;
-          }
-          if (response && response.success && response.data) {
-            if (window.TermsRadarUI) {
-              window.TermsRadarUI.injectShieldBadge(targetAnchorOrCheckbox, response.data);
-            }
+    // Request background service worker to fetch and audit terms
+    chrome.runtime.sendMessage(
+      {
+        action: 'ANALYZE_TC',
+        payload: {
+          url: targetUrl,
+          pageTitle: document.title
+        }
+      },
+      response => {
+        if (chrome.runtime.lastError) {
+          console.warn('[TermsRadar] Communication error:', chrome.runtime.lastError.message);
+          return;
+        }
+        if (response && response.success && response.data) {
+          if (window.TermsRadarUI) {
+            window.TermsRadarUI.injectShieldBadge(targetAnchorOrCheckbox, response.data);
           }
         }
-      );
-    }
+      }
+    );
   }
 
   // Listen for security threat overlays dispatched from background script

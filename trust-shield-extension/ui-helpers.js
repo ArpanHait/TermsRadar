@@ -6,6 +6,19 @@
 
 const TermsRadarUI = {
   /**
+   * Safely escapes HTML special characters to prevent XSS attacks.
+   */
+  escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  },
+
+  /**
    * Returns risk theme styling tokens based on the letter grade.
    */
   getGradeTheme(grade) {
@@ -57,8 +70,17 @@ const TermsRadarUI = {
     // Shadow DOM Encapsulation root
     const shadow = host.attachShadow({ mode: 'open' });
 
+    // Clean and sanitize summary text to remove any technical dev instructions
+    let cleanSummary = (analysisData.summary || 'AI security audit completed for legal agreement.')
+      .replace(/\s*\([^)]*(?:GEMINI|API_KEY|Cloudflare|configure)[^)]*\)/gi, '')
+      .trim();
+
+    const safeGrade = this.escapeHtml(analysisData.grade || 'C');
+    const safeLabel = this.escapeHtml(theme.label);
+    const safeSummary = this.escapeHtml(cleanSummary);
+
     const clausesList = (analysisData.high_risk_clauses || [])
-      .map(clause => `<li>${clause}</li>`)
+      .map(clause => `<li>${this.escapeHtml(clause)}</li>`)
       .join('');
 
     const styleEl = document.createElement('style');
@@ -179,11 +201,6 @@ const TermsRadarUI = {
       }
     `;
 
-    // Clean and sanitize summary text to remove any technical dev instructions
-    let cleanSummary = (analysisData.summary || 'AI security audit completed for legal agreement.')
-      .replace(/\s*\([^)]*(?:GEMINI|API_KEY|Cloudflare|configure)[^)]*\)/gi, '')
-      .trim();
-
     const cardEl = document.createElement('div');
     cardEl.className = 'card-wrapper';
     cardEl.innerHTML = `
@@ -193,11 +210,11 @@ const TermsRadarUI = {
           <span>TermsRadar Audit</span>
         </div>
         <div style="display:flex; align-items:center;">
-          <span class="grade-pill">${theme.label} (${analysisData.grade || 'C'})</span>
+          <span class="grade-pill">${safeLabel} (${safeGrade})</span>
           <button class="close-btn" id="btn-dismiss" title="Dismiss">×</button>
         </div>
       </div>
-      <div class="summary-text">${cleanSummary}</div>
+      <div class="summary-text">${safeSummary}</div>
       ${clausesList ? `
         <div class="clause-container">
           <div class="clause-header">⚠️ Flagged Clauses</div>
@@ -315,9 +332,11 @@ const TermsRadarUI = {
     const styleEl = document.createElement('style');
     styleEl.textContent = badgeStyle;
 
+    const safeGrade = this.escapeHtml(analysisData.grade || 'C');
+
     const badgeEl = document.createElement('div');
     badgeEl.className = 'badge';
-    badgeEl.innerHTML = `<span>${theme.emoji}</span><span>TermsRadar: Grade ${analysisData.grade || 'C'}</span>`;
+    badgeEl.innerHTML = `<span>${theme.emoji}</span><span>TermsRadar: Grade ${safeGrade}</span>`;
 
     shadow.appendChild(styleEl);
     shadow.appendChild(badgeEl);
@@ -337,6 +356,18 @@ const TermsRadarUI = {
     }, 10000);
 
     document.body.appendChild(container);
+  },
+
+  /**
+   * Disallows script tags, iframes, event handlers, and inline scripts in message payloads.
+   */
+  sanitizeHtml(html) {
+    if (!html) return '';
+    return String(html)
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
+      .replace(/on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+      .replace(/javascript:/gi, '');
   },
 
   /**
@@ -414,26 +445,46 @@ const TermsRadarUI = {
 
     const box = document.createElement('div');
     box.className = 'box';
-    box.innerHTML = `
-      <div class="icon">🛡️</div>
-      <h2>${title}</h2>
-      <p>${message}</p>
-      <div class="actions">
-        <button class="btn-primary" id="btn-close">Close Overlay</button>
-        ${canResumeCallback ? '<button class="btn-secondary" id="btn-resume">Resume at Own Risk</button>' : ''}
-      </div>
-    `;
 
-    shadow.appendChild(style);
-    shadow.appendChild(box);
+    const iconEl = document.createElement('div');
+    iconEl.className = 'icon';
+    iconEl.textContent = '🛡️';
 
-    shadow.querySelector('#btn-close').addEventListener('click', () => overlay.remove());
+    const h2El = document.createElement('h2');
+    h2El.textContent = title || 'Security Warning';
+
+    const pEl = document.createElement('p');
+    pEl.innerHTML = this.sanitizeHtml(message);
+
+    const actionsEl = document.createElement('div');
+    actionsEl.className = 'actions';
+
+    const btnClose = document.createElement('button');
+    btnClose.className = 'btn-primary';
+    btnClose.id = 'btn-close';
+    btnClose.textContent = 'Close Overlay';
+    btnClose.addEventListener('click', () => overlay.remove());
+    actionsEl.appendChild(btnClose);
+
     if (canResumeCallback) {
-      shadow.querySelector('#btn-resume').addEventListener('click', () => {
+      const btnResume = document.createElement('button');
+      btnResume.className = 'btn-secondary';
+      btnResume.id = 'btn-resume';
+      btnResume.textContent = 'Resume at Own Risk';
+      btnResume.addEventListener('click', () => {
         overlay.remove();
         canResumeCallback();
       });
+      actionsEl.appendChild(btnResume);
     }
+
+    box.appendChild(iconEl);
+    box.appendChild(h2El);
+    box.appendChild(pEl);
+    box.appendChild(actionsEl);
+
+    shadow.appendChild(style);
+    shadow.appendChild(box);
 
     document.body.appendChild(overlay);
   }
