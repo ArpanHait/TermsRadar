@@ -13,6 +13,11 @@
   <b>TermsRadar</b> automatically audits lengthy Terms of Service agreements, privacy policies, and registration forms in real-time using Google Gemini 1.5 Flash AI, intercepts dangerous binary downloads via SHA-256 VirusTotal hashing, and blocks phishing domains before you browse.
 </p>
 
+<p align="center">
+  <a href="USER_GUIDE.md">📖 <b>Read the Full User & Operation Guide</b></a> •
+  <a href="LICENSE">📄 <b>MIT License</b></a>
+</p>
+
 </div>
 
 ---
