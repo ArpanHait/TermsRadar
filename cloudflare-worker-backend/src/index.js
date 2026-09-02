@@ -9,9 +9,9 @@
  */
 export function getCorsHeaders(request, env) {
   const origin = request?.headers?.get('Origin') || '';
-  
+
   // Custom allowed origins list from environment configuration (if set)
-  const allowedOriginsList = env && env.ALLOWED_ORIGINS 
+  const allowedOriginsList = env && env.ALLOWED_ORIGINS
     ? env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
     : null;
 
@@ -38,22 +38,19 @@ export function getCorsHeaders(request, env) {
   };
 }
 
-// Pre-computed 256-byte hex lookup table to eliminate intermediate string allocations and padding
-const HEX_TABLE = Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, '0'));
-
 /**
- * Computes a SHA-256 string hash in Cloudflare Worker environment (Web Crypto).
+ * Helper to create JSON response with CORS headers.
+ * @param {Object} data - Response data to stringify
+ * @param {Object} corsHeaders - CORS headers object
+ * @param {number} status - HTTP status code (default 200)
+ * @returns {Response}
  */
-export async function hashString(str) {
-  const msgUint8 = new TextEncoder().encode(str);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
-  const bytes = new Uint8Array(hashBuffer);
-  let hex = '';
-  for (let i = 0; i < bytes.length; i++) {
-    hex += HEX_TABLE[bytes[i]];
-  }
-  return hex;
+function jsonResponse(data, corsHeaders, status = 200) {
+  return new Response(JSON.stringify(data), { status, headers: corsHeaders });
 }
+
+import { hashString } from '../../shared/crypto-utils.js';
+export { hashString };
 
 /**
  * Route table mapping HTTP "METHOD /pathname" to route handler functions.
@@ -78,15 +75,12 @@ export default {
 
     // Handle direct browser GET status/root hits gracefully
     if (request.method === 'GET' && (path === '/' || path === '/status')) {
-      return new Response(JSON.stringify({
+      return jsonResponse({
         service: 'TermsRadar Serverless Gateway',
         status: 'online',
         version: '1.0.0',
         message: 'TermsRadar Cloudflare Worker API is active and ready to process security requests.'
-      }), {
-        status: 200,
-        headers: corsHeaders
-      });
+      }, corsHeaders);
     }
 
     const routeKey = `${request.method.toUpperCase()} ${path}`;
@@ -96,16 +90,10 @@ export default {
       if (handler) {
         return await handler(request, env, corsHeaders);
       }
-      return new Response(JSON.stringify({ error: 'Endpoint not found' }), {
-        status: 404,
-        headers: corsHeaders
-      });
+      return jsonResponse({ error: 'Endpoint not found' }, corsHeaders, 404);
     } catch (err) {
       console.error('[Worker Error]', err);
-      return new Response(JSON.stringify({ error: 'Internal Server Error', detail: err.message }), {
-        status: 500,
-        headers: corsHeaders
-      });
+      return jsonResponse({ error: 'Internal Server Error', detail: err.message }, corsHeaders, 500);
     }
   }
 };
@@ -155,7 +143,7 @@ async function handleAnalyzeTc(request, env, corsHeaders = getCorsHeaders(reques
   const textContent = body.textContent || '';
 
   if (!targetUrl && !textContent) {
-    return new Response(JSON.stringify({ error: 'Missing T&C payload parameters' }), { status: 400, headers: corsHeaders });
+    return jsonResponse({ error: 'Missing T&C payload parameters' }, corsHeaders, 400);
   }
 
   // Generate KV Cache Key
@@ -165,7 +153,7 @@ async function handleAnalyzeTc(request, env, corsHeaders = getCorsHeaders(reques
   // Check Cloudflare KV Cache
   const cachedData = await getCachedKv(env, cacheKey);
   if (cachedData) {
-    return new Response(JSON.stringify({ ...cachedData, cached: true }), { headers: corsHeaders });
+    return jsonResponse({ ...cachedData, cached: true }, corsHeaders);
   }
 
   // Fallback Gemini Default Result if API Key missing in environment
@@ -177,7 +165,7 @@ async function handleAnalyzeTc(request, env, corsHeaders = getCorsHeaders(reques
       high_risk_clauses: ['Standard user data collection and tracking disclosure.'],
       categories: { privacy: 'Medium', termination: 'Standard' }
     };
-    return new Response(JSON.stringify(fallbackRes), { headers: corsHeaders });
+    return jsonResponse(fallbackRes, corsHeaders);
   }
 
   // Call Gemini 1.5 Flash API
@@ -248,7 +236,7 @@ Output STRICTLY valid JSON without markdown wrapping codeblocks or quotes, match
   // Store in Cloudflare KV (7 day TTL)
   await setCachedKv(env, cacheKey, result, 604800);
 
-  return new Response(JSON.stringify(result), { headers: corsHeaders });
+  return jsonResponse(result, corsHeaders);
 }
 
 /**
@@ -260,7 +248,7 @@ async function handleScanDownload(request, env, corsHeaders = getCorsHeaders(req
   const filename = body.filename || '';
 
   if (!sha256) {
-    return new Response(JSON.stringify({ error: 'Missing SHA-256 hash' }), { status: 400, headers: corsHeaders });
+    return jsonResponse({ error: 'Missing SHA-256 hash' }, corsHeaders, 400);
   }
 
   const cacheKey = `vt:${sha256}`;
@@ -268,14 +256,14 @@ async function handleScanDownload(request, env, corsHeaders = getCorsHeaders(req
   // Check Cloudflare KV Cache
   const cachedScan = await getCachedKv(env, cacheKey);
   if (cachedScan) {
-    return new Response(JSON.stringify({ ...cachedScan, cached: true }), { headers: corsHeaders });
+    return jsonResponse({ ...cachedScan, cached: true }, corsHeaders);
   }
 
   if (!env.VIRUSTOTAL_API_KEY) {
-    return new Response(JSON.stringify({
+    return jsonResponse({
       isMalicious: false,
       note: 'VIRUSTOTAL_API_KEY not set in worker environment variables.'
-    }), { headers: corsHeaders });
+    }, corsHeaders);
   }
 
   // Request VirusTotal API v3
@@ -289,11 +277,11 @@ async function handleScanDownload(request, env, corsHeaders = getCorsHeaders(req
 
   // Rate limit check (Public API limit 4 reqs/min)
   if (vtRes.status === 429) {
-    return new Response(JSON.stringify({
+    return jsonResponse({
       isMalicious: false,
       rateLimited: true,
       status: 429
-    }), { headers: corsHeaders });
+    }, corsHeaders);
   }
 
   let isMalicious = false;
@@ -322,7 +310,7 @@ async function handleScanDownload(request, env, corsHeaders = getCorsHeaders(req
   // Cache in KV for 24 hours (86400s)
   await setCachedKv(env, cacheKey, result, 86400);
 
-  return new Response(JSON.stringify(result), { headers: corsHeaders });
+  return jsonResponse(result, corsHeaders);
 }
 
 /**
@@ -340,7 +328,7 @@ async function handleCheckDomain(request, env, corsHeaders = getCorsHeaders(requ
   }
 
   if (!domain) {
-    return new Response(JSON.stringify({ isUnsafe: false }), { headers: corsHeaders });
+    return jsonResponse({ isUnsafe: false }, corsHeaders);
   }
 
   const cacheKey = `sb:${domain}`;
@@ -348,7 +336,7 @@ async function handleCheckDomain(request, env, corsHeaders = getCorsHeaders(requ
   // Check Cloudflare KV Cache
   const cachedDomain = await getCachedKv(env, cacheKey);
   if (cachedDomain) {
-    return new Response(JSON.stringify({ ...cachedDomain, cached: true }), { headers: corsHeaders });
+    return jsonResponse({ ...cachedDomain, cached: true }, corsHeaders);
   }
 
   let isUnsafe = false;
@@ -388,5 +376,5 @@ async function handleCheckDomain(request, env, corsHeaders = getCorsHeaders(requ
   // Cache in KV for 24 hours (86400s)
   await setCachedKv(env, cacheKey, result, 86400);
 
-  return new Response(JSON.stringify(result), { headers: corsHeaders });
+  return jsonResponse(result, corsHeaders);
 }

@@ -18,37 +18,57 @@
   };
 
   /**
-   * Finds the primary Terms / Privacy / Legal link on the page efficiently without allocating full arrays.
+   * Finds the primary Terms / Privacy / Legal link on the page efficiently
+   * using TreeWalker for early-exit traversal (avoids querySelectorAll allocation).
    */
   function findPrimaryTermsLink() {
-    // Fast path 1: CSS attribute selector for common URL patterns
+    // Fast path 1: CSS attribute selector for common URL patterns (single query)
     const fastLink = document.querySelector('a[href*="terms" i], a[href*="privacy" i], a[href*="tos" i], a[href*="legal" i], a[href*="agreement" i]');
     if (fastLink) return fastLink;
 
-    // Fast path 2: Single iteration over links, breaking on first match
-    const links = document.querySelectorAll('a[href]');
-    for (const link of links) {
-      const href = link.getAttribute('href') || '';
-      const text = link.textContent || '';
-      if (CONFIG.TERMS_LINK_REGEX.test(href) || CONFIG.TERMS_LINK_REGEX.test(text)) {
-        return link;
+    // Fast path 2: TreeWalker for iterative traversal with true early exit
+    // Only visits nodes until a match is found, no full NodeList allocation
+    const walker = document.createTreeWalker(
+      document.body,
+      NodeFilter.SHOW_ELEMENT,
+      {
+        acceptNode(node) {
+          if (node.tagName !== 'A' || !node.hasAttribute('href')) {
+            return NodeFilter.FILTER_SKIP;
+          }
+          const href = node.getAttribute('href') || '';
+          const text = node.textContent || '';
+          return (CONFIG.TERMS_LINK_REGEX.test(href) || CONFIG.TERMS_LINK_REGEX.test(text))
+            ? NodeFilter.FILTER_ACCEPT
+            : NodeFilter.FILTER_SKIP;
+        }
       }
-    }
-    return null;
+    );
+
+    return walker.nextNode(); // Returns first matching <a> or null
   }
 
   /**
-   * Finds the primary registration or terms agreement checkbox with early exit.
+   * Finds the primary registration or terms agreement checkbox with early exit
+   * using TreeWalker (avoids querySelectorAll allocation, stops at first match).
    */
   function findPrimaryTermsCheckbox() {
-    const checkboxes = document.querySelectorAll('input[type="checkbox"]');
-    for (const cb of checkboxes) {
-      const parentText = cb.parentElement ? cb.parentElement.textContent : '';
-      if (CONFIG.SIGNUP_INDICATORS.test(parentText) || CONFIG.TERMS_LINK_REGEX.test(parentText)) {
-        return cb;
+    const walker = document.createTreeWalker(
+      document.body,
+      NodeFilter.SHOW_ELEMENT,
+      {
+        acceptNode(node) {
+          if (node.tagName !== 'INPUT' || node.type !== 'checkbox') {
+            return NodeFilter.FILTER_SKIP;
+          }
+          const parentText = node.parentElement ? node.parentElement.textContent : '';
+          return (CONFIG.SIGNUP_INDICATORS.test(parentText) || CONFIG.TERMS_LINK_REGEX.test(parentText))
+            ? NodeFilter.FILTER_ACCEPT
+            : NodeFilter.FILTER_SKIP;
+        }
       }
-    }
-    return null;
+    );
+    return walker.nextNode(); // Returns first matching checkbox or null
   }
 
   /**

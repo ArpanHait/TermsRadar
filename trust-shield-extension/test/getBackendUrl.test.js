@@ -1,7 +1,7 @@
-const { describe, it, beforeEach, afterEach } = require('node:test');
-const assert = require('node:assert');
+import { describe, it, beforeEach, afterEach } from 'node:test';
+import assert from 'node:assert';
 
-// Mock chrome global before requiring background.js
+// Mock chrome global before importing background.js
 global.chrome = {
   downloads: { onDeterminingFilename: { addListener: () => {} } },
   runtime: { onMessage: { addListener: () => {} } },
@@ -9,7 +9,7 @@ global.chrome = {
   storage: { local: { get: async () => ({}) } }
 };
 
-const { getBackendUrl, invalidateBackendUrlCache, CONFIG } = require('../background.js');
+import { getBackendUrl, invalidateBackendUrlCache, CONFIG } from '../background.js';
 
 describe('getBackendUrl utility function', () => {
   let originalChromeStorage;

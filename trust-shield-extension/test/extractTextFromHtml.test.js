@@ -1,7 +1,7 @@
-const { describe, it } = require('node:test');
-const assert = require('node:assert');
+import { describe, it } from 'node:test';
+import assert from 'node:assert';
 
-// Mock chrome global before requiring background.js
+// Mock chrome global before importing background.js
 global.chrome = {
   downloads: { onDeterminingFilename: { addListener: () => {} } },
   runtime: { onMessage: { addListener: () => {} } },
@@ -9,7 +9,7 @@ global.chrome = {
   storage: { local: { get: async () => ({}) } }
 };
 
-const { extractTextFromHtml } = require('../background.js');
+import { extractTextFromHtml } from '../background.js';
 
 describe('extractTextFromHtml utility function', () => {
   it('should return empty string for null, undefined, or empty input', () => {

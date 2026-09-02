@@ -4,6 +4,8 @@
  * and Cloudflare Serverless Worker API communications.
  */
 
+import { hashArrayBuffer as calculateSha256 } from './crypto-utils.js';
+
 // ============================================================================
 // GLOBAL CONFIGURATION BLOCK
 // Swap live Cloudflare Worker URL or endpoint parameters here.
@@ -21,8 +23,8 @@ let cachedBackendUrl = null;
  * Formats and normalizes worker backend URL string.
  */
 function formatBackendUrl(rawUrl) {
-  let url = (rawUrl && typeof rawUrl === 'string' && rawUrl.trim() !== '') 
-    ? rawUrl.trim() 
+  let url = (rawUrl && typeof rawUrl === 'string' && rawUrl.trim() !== '')
+    ? rawUrl.trim()
     : CONFIG.WORKER_BACKEND_URL;
   url = url.replace(/\/$/, '');
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
@@ -55,15 +57,6 @@ async function getBackendUrl(forceRefresh = false) {
   return cachedBackendUrl;
 }
 
-// Invalidate in-memory URL cache when storage changes
-if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
-  chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName === 'local' && changes.customWorkerUrl) {
-      invalidateBackendUrlCache();
-    }
-  });
-}
-
 /**
  * Safely & efficiently extracts plain text from an HTML payload without DOM dependency
  * or catastrophic regex backtracking (optimized for Service Worker execution).
@@ -87,13 +80,25 @@ function extractTextFromHtml(html) {
   // Strip HTML tags
   text = text.replace(/<[^>]+>/g, ' ');
 
-  // Decode common HTML entities
-  text = text.replace(/&nbsp;/gi, ' ')
-             .replace(/&amp;/gi, '&')
-             .replace(/&lt;/gi, '<')
-             .replace(/&gt;/gi, '>')
-             .replace(/&quot;/gi, '"')
-             .replace(/&#39;/g, "'");
+  // Decode common HTML entities - entity NAMES (not decoded chars) in correct order
+  text = text
+    // Named entities
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&apos;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    // Numeric entities
+    .replace(/&#160;/gi, ' ')
+    .replace(/&#39;/gi, "'")
+    .replace(/&#34;/gi, '"')
+    .replace(/&#60;/gi, '<')
+    .replace(/&#62;/gi, '>')
+    .replace(/&#38;/gi, '&')
+    // Decode ampersands only after every other known entity.
+    .replace(/&amp;/gi, '&');
+  // Handle any remaining bare & (malformed entities) as literal &
+  text = text.replace(/&/g, '&');
 
   // Normalize whitespace and limit payload size
   return text.replace(/\s+/g, ' ').trim().slice(0, 15000);
@@ -113,22 +118,6 @@ async function updateStats(metric) {
   } catch (err) {
     console.error('[TermsRadar] Error updating stats:', err);
   }
-}
-
-// Pre-computed 256-byte hex lookup table to eliminate intermediate string allocations
-const HEX_TABLE = Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, '0'));
-
-/**
- * Calculates SHA-256 hash of a Blob / ArrayBuffer using Web Crypto API.
- */
-async function calculateSha256(arrayBuffer) {
-  const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
-  const bytes = new Uint8Array(hashBuffer);
-  let hex = '';
-  for (let i = 0; i < bytes.length; i++) {
-    hex += HEX_TABLE[bytes[i]];
-  }
-  return hex;
 }
 
 /**
@@ -228,109 +217,147 @@ async function handleDownloadScan(downloadItem, suggest) {
   suggest({ filename: downloadItem.filename });
 }
 
-// ============================================================================
-// 1. REAL-TIME DOWNLOAD SCANNER
-// ============================================================================
-chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
-  handleDownloadScan(downloadItem, suggest);
-  return true; // Keep asynchronous channel open for suggest()
-});
+/**
+ * Initializes Chrome event listeners.
+ * Only runs when chrome global is available (not in test environment).
+ */
+function initChromeListeners() {
+  if (typeof chrome === 'undefined') return;
 
-// Resuming download from rate limit warning overlay
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === 'RESUME_DOWNLOAD' && message.downloadId) {
-    chrome.downloads.resume(message.downloadId);
-    sendResponse({ success: true });
-  }
-});
-
-// ============================================================================
-// 2. PHISHING & WEBSITE VERIFICATION (NAVIGATION INTERCEPTION)
-// ============================================================================
-if (typeof chrome !== 'undefined' && chrome.webNavigation?.onCommitted) {
-  chrome.webNavigation.onCommitted.addListener(details => {
-    // Filter out sub-frames, non-http(s) pages, and chrome internal URLs
-    if (details.frameId !== 0 || !details.url || (!details.url.startsWith('http://') && !details.url.startsWith('https://'))) {
-      return;
-    }
-
-    (async () => {
-      try {
-        const backendUrl = await getBackendUrl();
-        const checkRes = await fetch(`${backendUrl}/check-domain`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: details.url })
-        });
-
-        const checkData = await checkRes.json();
-        if (checkData && checkData.isUnsafe) {
-          updateStats('threatsBlocked');
-          let hostname = '';
-          try {
-            hostname = new URL(details.url).hostname;
-          } catch (e) {
-            hostname = details.url;
-          }
-          const safeHostname = extractTextFromHtml(hostname);
-          const safeDetail = extractTextFromHtml(checkData.threatDetail || 'Flagged by Safe Browsing databases.');
-          chrome.tabs.sendMessage(details.tabId, {
-            action: 'SHOW_SECURITY_BARRIER',
-            title: 'DANGEROUS WEBSITE BLOCKED: Phishing & Malicious Domain Warning',
-            message: `TermsRadar detected potential fraud/phishing on <strong>${safeHostname}</strong>.<br><br><strong>Details:</strong> ${safeDetail}`,
-            canResume: false
-          }).catch(() => {});
-        }
-      } catch (err) {
-        console.error('[TermsRadar] Domain check error:', err);
+  // Invalidate in-memory URL cache when storage changes
+  if (chrome.storage?.onChanged) {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName === 'local' && changes.customWorkerUrl) {
+        invalidateBackendUrlCache();
       }
-    })();
-  });
+    });
+  }
+
+  // ============================================================================
+  // 1. REAL-TIME DOWNLOAD SCANNER
+  // ============================================================================
+  if (chrome.downloads?.onDeterminingFilename) {
+    chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
+      handleDownloadScan(downloadItem, suggest);
+      return true; // Keep asynchronous channel open for suggest()
+    });
+  }
+
+  // Resuming download from rate limit warning overlay
+  if (chrome.runtime?.onMessage) {
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (message.action === 'RESUME_DOWNLOAD' && message.downloadId) {
+        chrome.downloads.resume(message.downloadId);
+        sendResponse({ success: true });
+      }
+    });
+  }
+
+  // ============================================================================
+  // 2. PHISHING & WEBSITE VERIFICATION (NAVIGATION INTERCEPTION)
+  // ============================================================================
+  if (chrome.webNavigation?.onCommitted) {
+    chrome.webNavigation.onCommitted.addListener(details => {
+      // Filter out sub-frames, non-http(s) pages, and chrome internal URLs
+      if (details.frameId !== 0 || !details.url || (!details.url.startsWith('http://') && !details.url.startsWith('https://'))) {
+        return;
+      }
+
+      (async () => {
+        try {
+          const backendUrl = await getBackendUrl();
+          const checkRes = await fetch(`${backendUrl}/check-domain`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: details.url })
+          });
+
+          const checkData = await checkRes.json();
+          if (checkData && checkData.isUnsafe) {
+            updateStats('threatsBlocked');
+            let hostname = '';
+            try {
+              hostname = new URL(details.url).hostname;
+            } catch (e) {
+              hostname = details.url;
+            }
+            const safeHostname = extractTextFromHtml(hostname);
+            const safeDetail = extractTextFromHtml(checkData.threatDetail || 'Flagged by Safe Browsing databases.');
+            chrome.tabs.sendMessage(details.tabId, {
+              action: 'SHOW_SECURITY_BARRIER',
+              title: 'DANGEROUS WEBSITE BLOCKED: Phishing & Malicious Domain Warning',
+              message: `TermsRadar detected potential fraud/phishing on <strong>${safeHostname}</strong>.<br><br><strong>Details:</strong> ${safeDetail}`,
+              canResume: false
+            }).catch(() => {});
+          }
+        } catch (err) {
+          console.error('[TermsRadar] Domain check error:', err);
+        }
+      })();
+    });
+  }
+
+  // ============================================================================
+  // 3. T&C ANALYSIS DISPATCHER
+  // ============================================================================
+  if (chrome.runtime?.onMessage) {
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (message.action === 'ANALYZE_TC') {
+        (async () => {
+          try {
+            const { url } = message.payload;
+            let termsText = '';
+
+            // Asynchronously fetch terms page content if valid absolute HTTP/HTTPS URL
+            if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+              try {
+                const fetchRes = await fetch(url, { method: 'GET' });
+                const htmlText = await fetchRes.text();
+                // Extract plain text using optimized helper without DOM or heavy regex backtracking
+                termsText = extractTextFromHtml(htmlText);
+              } catch (fetchErr) {
+                console.warn('[TermsRadar] Could not fetch terms body directly, sending URL snippet:', fetchErr);
+              }
+            }
+
+            const backendUrl = await getBackendUrl();
+            const auditRes = await fetch(`${backendUrl}/analyze-tc`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ url, textContent: termsText })
+            });
+
+            const auditData = await auditRes.json();
+            updateStats('tcScanned');
+            sendResponse({ success: true, data: auditData });
+          } catch (err) {
+            console.error('[TermsRadar] Error analyzing T&C:', err);
+            sendResponse({ success: false, error: err.message });
+          }
+        })();
+
+        return true; // Asynchronous response channel
+      }
+    });
+  }
 }
 
-// ============================================================================
-// 3. T&C ANALYSIS DISPATCHER
-// ============================================================================
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === 'ANALYZE_TC') {
-    (async () => {
-      try {
-        const { url } = message.payload;
-        let termsText = '';
+// Initialize listeners when running in Chrome extension context
+initChromeListeners();
 
-        // Asynchronously fetch terms page content if valid absolute HTTP/HTTPS URL
-        if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
-          try {
-            const fetchRes = await fetch(url, { method: 'GET' });
-            const htmlText = await fetchRes.text();
-            // Extract plain text using optimized helper without DOM or heavy regex backtracking
-            termsText = extractTextFromHtml(htmlText);
-          } catch (fetchErr) {
-            console.warn('[TermsRadar] Could not fetch terms body directly, sending URL snippet:', fetchErr);
-          }
-        }
+// ES module exports for unit testing
+export {
+  getBackendUrl,
+  extractTextFromHtml,
+  invalidateBackendUrlCache,
+  calculateSha256,
+  handleDownloadScan,
+  notifySecurityBarrier,
+  updateStats,
+  CONFIG
+};
 
-        const backendUrl = await getBackendUrl();
-        const auditRes = await fetch(`${backendUrl}/analyze-tc`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url, textContent: termsText })
-        });
-
-        const auditData = await auditRes.json();
-        updateStats('tcScanned');
-        sendResponse({ success: true, data: auditData });
-      } catch (err) {
-        console.error('[TermsRadar] Error analyzing T&C:', err);
-        sendResponse({ success: false, error: err.message });
-      }
-    })();
-
-    return true; // Asynchronous response channel
-  }
-});
-
-// CommonJS export block for unit testing
+// CommonJS export block for unit testing (legacy)
 if (typeof exports !== 'undefined') {
   exports.getBackendUrl = getBackendUrl;
   exports.extractTextFromHtml = extractTextFromHtml;

@@ -1,10 +1,10 @@
-const { describe, it, beforeEach } = require('node:test');
-const assert = require('node:assert');
+import { describe, it, beforeEach } from 'node:test';
+import assert from 'node:assert';
 
 let mockStorageData = {};
 let setCallCount = 0;
 
-// Mock chrome global before requiring background.js
+// Mock chrome global before importing background.js
 global.chrome = {
   downloads: { onDeterminingFilename: { addListener: () => {} } },
   runtime: { onMessage: { addListener: () => {} } },
@@ -27,7 +27,7 @@ global.chrome = {
   }
 };
 
-const { updateStats } = require('../background.js');
+import { updateStats } from '../background.js';
 
 describe('updateStats utility function', () => {
   beforeEach(() => {

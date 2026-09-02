@@ -68,6 +68,7 @@
 
 ```text
 TermsRadar/
+├── USER_GUIDE.md                     # Step-by-step user operation & feature manual
 ├── trust-shield-extension/           # Chrome Extension (Manifest V3)
 │   ├── manifest.json                 # Permissions, host matchers, declarativeNetRequest
 │   ├── background.js                 # Service worker, SHA-256 download interceptor, domain check
@@ -99,6 +100,8 @@ TermsRadar/
         ├── router.test.js
         └── sanitizePromptInput.test.js
 ```
+
+> 📖 **Looking for full user instructions?** Read the detailed [**User & Operation Guide (USER_GUIDE.md)**](USER_GUIDE.md) for step-by-step usage procedures, badge definitions, and troubleshooting.
 
 ---
 

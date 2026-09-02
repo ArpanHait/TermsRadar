@@ -1,7 +1,7 @@
-const { describe, it } = require('node:test');
-const assert = require('node:assert');
+import { describe, it } from 'node:test';
+import assert from 'node:assert';
 
-// Mock chrome global before requiring background.js
+// Mock chrome global before importing background.js
 global.chrome = {
   downloads: {
     onDeterminingFilename: { addListener: () => {} },
@@ -23,7 +23,7 @@ global.chrome = {
   }
 };
 
-const { handleDownloadScan, CONFIG } = require('../background.js');
+import { handleDownloadScan, CONFIG } from '../background.js';
 
 describe('handleDownloadScan utility function', () => {
   it('should immediately suggest safe files without pausing download', async () => {

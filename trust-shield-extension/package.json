@@ -2,6 +2,7 @@
   "name": "termsradar-extension",
   "version": "1.0.0",
   "description": "TermsRadar Chrome Extension",
+  "type": "module",
   "scripts": {
     "test": "node --test test/**/*.test.js"
   }

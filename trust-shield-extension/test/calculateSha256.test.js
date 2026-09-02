@@ -1,7 +1,7 @@
-const { describe, it } = require('node:test');
-const assert = require('node:assert');
+import { describe, it } from 'node:test';
+import assert from 'node:assert';
 
-// Mock chrome global before requiring background.js
+// Mock chrome global before importing background.js
 global.chrome = {
   downloads: { onDeterminingFilename: { addListener: () => {} } },
   runtime: { onMessage: { addListener: () => {} } },
@@ -9,7 +9,7 @@ global.chrome = {
   storage: { local: { get: async () => ({}) } }
 };
 
-const { calculateSha256 } = require('../background.js');
+import { calculateSha256 } from '../background.js';
 
 describe('calculateSha256 utility function', () => {
   it('should compute correct SHA-256 hash for an empty ArrayBuffer', async () => {
